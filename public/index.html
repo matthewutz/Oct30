@@ -16,10 +16,120 @@
   </head>
   <body>
     <main class="card">
-      <h1>It works!</h1>
-      <p>Your Express server is serving this <code>public/index.html</code>.</p>
+      <h1>Multiplayer Animals</h1>
+      <p>Move with WASD. Open this page in multiple tabs to see others.</p>
+      <canvas id="game" width="960" height="540" style="max-width: 100%; border-radius: 12px; background: color-mix(in oklab, canvas 96%, black);"></canvas>
       <p>Health check: <a href="/health">/health</a></p>
     </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const canvas = document.getElementById('game');
+      const ctx = canvas.getContext('2d');
+      const ioClient = io();
+
+      const world = { width: 2000, height: 1200 };
+      const camera = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      const keys = new Set();
+      const players = new Map(); // id -> { x, y, animal }
+      let myId = null;
+
+      function resize() {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor((rect.width * 9/16) * dpr);
+        camera.w = canvas.width; camera.h = canvas.height;
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      // Socket handlers
+      ioClient.on('connect', () => {
+        myId = ioClient.id;
+      });
+      ioClient.on('state', (obj) => {
+        players.clear();
+        for (const [id, p] of Object.entries(obj)) players.set(id, p);
+        if (!myId) myId = ioClient.id;
+      });
+      ioClient.on('playerJoined', (p) => { players.set(p.id, { x: p.x, y: p.y, animal: p.animal }); });
+      ioClient.on('playerMoved', ({ id, x, y }) => { const p = players.get(id); if (p) { p.x = x; p.y = y; } });
+      ioClient.on('playerLeft', ({ id }) => { players.delete(id); });
+
+      // Input
+      window.addEventListener('keydown', (e) => { if ('wasd'.includes(e.key.toLowerCase())) { keys.add(e.key.toLowerCase()); e.preventDefault(); }});
+      window.addEventListener('keyup', (e) => { if ('wasd'.includes(e.key.toLowerCase())) { keys.delete(e.key.toLowerCase()); e.preventDefault(); }});
+
+      let last = performance.now();
+      function loop(now) {
+        const dt = Math.min(0.1, (now - last) / 1000);
+        last = now;
+
+        let vx = 0, vy = 0;
+        if (keys.has('w')) vy -= 1;
+        if (keys.has('s')) vy += 1;
+        if (keys.has('a')) vx -= 1;
+        if (keys.has('d')) vx += 1;
+        // normalize diagonal
+        if (vx !== 0 && vy !== 0) { const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
+
+        if ((vx !== 0 || vy !== 0) && myId) {
+          ioClient.emit('move', { vx, vy, dt });
+        }
+
+        // center camera on self
+        const me = myId ? players.get(myId) : null;
+        if (me) {
+          camera.x = Math.round(me.x - camera.w / 2);
+          camera.y = Math.round(me.y - camera.h / 2);
+          camera.x = Math.max(0, Math.min(world.width - camera.w, camera.x));
+          camera.y = Math.max(0, Math.min(world.height - camera.h, camera.y));
+        }
+
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      function drawGrid() {
+        const step = 100;
+        ctx.strokeStyle = 'rgba(127,127,127,0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = -camera.x % step; x < camera.w; x += step) {
+          ctx.moveTo(x, 0); ctx.lineTo(x, camera.h);
+        }
+        for (let y = -camera.y % step; y < camera.h; y += step) {
+          ctx.moveTo(0, y); ctx.lineTo(camera.w, y);
+        }
+        ctx.stroke();
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
+
+        for (const [id, p] of players) {
+          const screenX = Math.round(p.x - camera.x);
+          const screenY = Math.round(p.y - camera.y);
+          const size = 36;
+          ctx.font = `${size}px system-ui, emoji`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(p.animal || '🐾', screenX, screenY);
+
+          if (id === myId) {
+            ctx.strokeStyle = 'deepskyblue';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 24, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+      }
+
+      requestAnimationFrame(loop);
+    </script>
   </body>
   </html>
 

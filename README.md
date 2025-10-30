@@ -24,6 +24,8 @@ Open `http://localhost:3000`.
 
 - Health check: `http://localhost:3000/health` returns `{ "status": "ok" }`.
 
+Open in multiple tabs to see other users moving in real time. Control with WASD.
+
 ## Configuration
 
 - Port: set `PORT` env var (defaults to 3000)
