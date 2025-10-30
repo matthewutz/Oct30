@@ -154,21 +154,31 @@ io.on('connection', (socket) => {
   });
 
   // --- Roulette events ---
-  socket.on('roulette:bet', ({ number, amount }) => {
-    number = Number(number);
-    amount = Math.max(1, Math.min(1000, Number(amount) || 0));
-    if (!Number.isInteger(number) || number < 0 || number > 36) return;
+  socket.on('roulette:bet', (payload) => {
+    const type = payload?.type || 'number';
+    let amount = Math.max(1, Math.min(1000, Number(payload?.amount) || 0));
     // Deadline: stop accepting bets 2s before spin
     if (Date.now() > roulette.nextSpinAt - 2000) return;
-    // Proximity and chips
     const me = players.get(socket.id);
     if (!me) return;
     const near = Math.hypot(me.x - roulette.x, me.y - roulette.y) < 150;
     if (!near) return;
     if (me.chips < amount) return;
-    me.chips -= amount;
-    const bet = { id: `${socket.id}-${Date.now()}`, playerId: socket.id, number, amount };
-    roulette.bets.push(bet);
+
+    if (type === 'number') {
+      const number = Number(payload?.number);
+      if (!Number.isInteger(number) || number < 0 || number > 36) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'number', number, amount });
+    } else if (type === 'color') {
+      const color = String(payload?.color || '').toLowerCase();
+      if (!['red','black'].includes(color)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'color', color, amount });
+    } else {
+      return;
+    }
+
     io.emit('rouletteUpdate', serializeRoulette());
     io.emit('chipsUpdate', { id: socket.id, chips: me.chips });
   });
@@ -261,10 +271,19 @@ setInterval(() => {
     roulette.lastResult = result;
     const wins = [];
     for (const b of roulette.bets) {
-      if (b.number === result) {
-        const payout = b.amount * 36; // stake already deducted
-        const pl = players.get(b.playerId);
-        if (pl) {
+      const pl = players.get(b.playerId);
+      if (!pl) continue;
+      if (b.type === 'number' && b.number === result) {
+        const payout = b.amount * 36; // includes stake
+        pl.chips += payout;
+        wins.push({ playerId: b.playerId, amount: payout });
+        io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+      }
+      if (b.type === 'color') {
+        const redSet = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+        const resultColor = result === 0 ? 'green' : (redSet.has(result) ? 'red' : 'black');
+        if (b.color === resultColor) {
+          const payout = b.amount * 2; // even money includes stake
           pl.chips += payout;
           wins.push({ playerId: b.playerId, amount: payout });
           io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });

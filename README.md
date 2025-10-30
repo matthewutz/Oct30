@@ -26,10 +26,14 @@ Open `http://localhost:3000`.
 
 Open in multiple tabs to see other users moving in real time. Control with WASD.
 
+- Press F near a table to open/close its menu.
+ - Fullscreen canvas; casino floor uses traditional colors.
+
 ## Casino features
 
 - Roulette (green table at ~x600,y400)
   - Place a number bet (0-36) and wait for the periodic spin (~20s)
+  - Color bets supported (Red/Black) at even money
   - All players see each other’s bets and the result
 - Blackjack (blue table at ~x1200,y500)
   - Place a bet when the round is idle, click Deal to start

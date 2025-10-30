@@ -6,21 +6,14 @@
     <title>Oct30 Express Server</title>
     <style>
       :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; display: grid; place-items: center; min-height: 100svh; }
-      .card { padding: 2rem; text-align: center; max-width: 680px; }
-      h1 { margin: 0 0 0.5rem; font-size: clamp(1.75rem, 2.5vw + 1rem, 3rem); }
-      p { margin: 0.5rem 0; line-height: 1.5; }
-      code { padding: 0.2rem 0.4rem; border-radius: 4px; background: color-mix(in oklab, canvas 92%, black); }
-      a { color: inherit; }
+      body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+      #game { display: block; width: 100vw; height: 100vh; background: #1a1a1a; }
+      .hint { position: fixed; left: 50%; bottom: 2rem; transform: translateX(-50%); background: rgba(0,0,0,.6); color: white; padding: .5rem .75rem; border-radius: 999px; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.2); display:none; }
     </style>
   </head>
   <body>
-    <main class="card">
-      <h1>Multiplayer Animals</h1>
-      <p>Move with WASD. Open this page in multiple tabs to see others.</p>
-      <canvas id="game" width="960" height="540" style="max-width: 100%; border-radius: 12px; background: color-mix(in oklab, canvas 96%, black);"></canvas>
-      <p>Health check: <a href="/health">/health</a></p>
-    </main>
+    <canvas id="game"></canvas>
+    <div id="press-hint" class="hint">Press F to interact</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -43,26 +36,37 @@
       const players = new Map(); // id -> { x, y, animal, chips }
       const tables = { roulette: null, blackjack: null };
       let activePanel = null; // 'roulette' | 'blackjack' | null
+      const hint = document.getElementById('press-hint');
 
       // UI overlay elements
+      const backdrop = document.createElement('div');
+      backdrop.style.position = 'fixed';
+      backdrop.style.inset = '0';
+      backdrop.style.background = 'rgba(0,0,0,0.4)';
+      backdrop.style.backdropFilter = 'blur(2px)';
+      backdrop.style.display = 'none';
+      document.body.appendChild(backdrop);
       const ui = document.createElement('div');
       ui.style.position = 'fixed';
-      ui.style.inset = 'auto 1rem 1rem auto';
+      ui.style.left = '50%';
+      ui.style.top = '50%';
+      ui.style.transform = 'translate(-50%, -50%)';
       ui.style.padding = '1rem';
-      ui.style.borderRadius = '12px';
+      ui.style.borderRadius = '16px';
       ui.style.background = 'color-mix(in oklab, canvas 92%, black)';
-      ui.style.boxShadow = '0 6px 24px rgba(0,0,0,.2)';
-      ui.style.minWidth = '280px';
+      ui.style.boxShadow = '0 20px 60px rgba(0,0,0,.35)';
+      ui.style.minWidth = '320px';
       ui.style.maxWidth = '90vw';
+      ui.style.maxHeight = '80vh';
+      ui.style.overflow = 'auto';
       ui.style.display = 'none';
       document.body.appendChild(ui);
       let myId = null;
 
       function resize() {
         const dpr = Math.min(2, window.devicePixelRatio || 1);
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = Math.floor(rect.width * dpr);
-        canvas.height = Math.floor((rect.width * 9/16) * dpr);
+        canvas.width = Math.floor(window.innerWidth * dpr);
+        canvas.height = Math.floor(window.innerHeight * dpr);
         camera.w = canvas.width; camera.h = canvas.height;
       }
       window.addEventListener('resize', resize);
@@ -90,6 +94,7 @@
       ioClient.on('rouletteUpdate', (r) => { tables.roulette = r; renderUI(); });
       ioClient.on('rouletteSpin', ({ result, wins }) => {
         tables.roulette.lastResult = result;
+        startRouletteSpin(result);
         renderUI();
       });
       ioClient.on('blackjackUpdate', (bj) => { tables.blackjack = bj; renderUI(); });
@@ -102,10 +107,12 @@
       ioClient.on('playerLeft', ({ id }) => { players.delete(id); });
 
       // Input
-      window.addEventListener('keydown', (e) => { if ('wasd'.includes(e.key.toLowerCase())) { keys.add(e.key.toLowerCase()); e.preventDefault(); }});
-      window.addEventListener('keyup', (e) => { if ('wasd'.includes(e.key.toLowerCase())) { keys.delete(e.key.toLowerCase()); e.preventDefault(); }});
+      window.addEventListener('keydown', (e) => { const k = e.key.toLowerCase(); if ('wasd'.includes(k)) { keys.add(k); e.preventDefault(); } if (k === 'f') { toggleInteract(); e.preventDefault(); }});
+      window.addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); if ('wasd'.includes(k)) { keys.delete(k); e.preventDefault(); }});
 
       let last = performance.now();
+      let rouletteAnim = { spinning: false, angle: 0, start: 0, duration: 2000, target: 0 };
+      let bjAnimTimers = [];
       function loop(now) {
         const dt = Math.min(0.1, (now - last) / 1000);
         last = now;
@@ -157,6 +164,8 @@
         if (tables.roulette) drawRouletteTable();
         if (tables.blackjack) drawBlackjackTable();
 
+        drawInteractHint();
+
         for (const [id, p] of players) {
           const screenX = Math.round(p.x - camera.x);
           const screenY = Math.round(p.y - camera.y);
@@ -179,28 +188,28 @@
       requestAnimationFrame(loop);
 
       function drawCasinoFloor() {
-        // floor pattern
-        const step = 80;
-        ctx.fillStyle = 'color-mix(in oklab, canvas 94%, black)';
+        // Deep red carpet with subtle gold grid
+        ctx.fillStyle = '#7a0c0c';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+        const step = 100;
+        ctx.strokeStyle = 'rgba(255,215,0,0.07)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let x = -camera.x % step; x < camera.w; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, camera.h); }
         for (let y = -camera.y % step; y < camera.h; y += step) { ctx.moveTo(0, y); ctx.lineTo(camera.w, y); }
         ctx.stroke();
 
-        // rooms (simple rectangles)
-        drawRoom(450, 350, 400, 300); // Roulette room
-        drawRoom(1000, 400, 500, 320); // Blackjack room
+        // rooms (tinted felt)
+        drawRoom(450, 350, 420, 320, '#175c2b'); // Roulette
+        drawRoom(1000, 400, 520, 340, '#0a2a66'); // Blackjack
       }
 
-      function drawRoom(cx, cy, w, h) {
+      function drawRoom(cx, cy, w, h, tint) {
         const x = cx - camera.x - w/2;
         const y = cy - camera.y - h/2;
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-        ctx.lineWidth = 4;
+        ctx.fillStyle = tint || 'rgba(255,255,255,0.05)';
+        ctx.strokeStyle = 'rgba(255,215,0,0.6)';
+        ctx.lineWidth = 6;
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
       }
@@ -208,7 +217,7 @@
       function drawRouletteTable() {
         const t = tables.roulette;
         const x = t.x - camera.x, y = t.y - camera.y;
-        ctx.fillStyle = 'rgba(0,128,0,0.8)';
+        ctx.fillStyle = '#136f2d';
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 2;
         ctx.fillRect(x - 100, y - 50, 200, 100);
@@ -225,7 +234,7 @@
       function drawBlackjackTable() {
         const t = tables.blackjack;
         const x = t.x - camera.x, y = t.y - camera.y;
-        ctx.fillStyle = 'rgba(0,64,160,0.8)';
+        ctx.fillStyle = '#0a2a66';
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 2;
         ctx.fillRect(x - 120, y - 60, 240, 120);
@@ -237,22 +246,28 @@
         ctx.fillText(`${t.roundActive ? 'Round active' : 'Place bets'}`, x, y + 20);
       }
 
-      // Click to open UI if close to a table
-      canvas.addEventListener('click', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
-        const cx = (e.clientX - rect.left) * dpr + camera.x;
-        const cy = (e.clientY - rect.top) * dpr + camera.y;
+      function drawInteractHint() {
+        const me = myId ? players.get(myId) : null;
+        let show = false;
+        if (me && tables.roulette) {
+          if (Math.hypot(me.x - tables.roulette.x, me.y - tables.roulette.y) < 150) show = true;
+        }
+        if (me && tables.blackjack && Math.hypot(me.x - tables.blackjack.x, me.y - tables.blackjack.y) < 150) show = true;
+        hint.style.display = show && !activePanel ? 'block' : 'none';
+      }
+
+      function toggleInteract() {
         const me = myId ? players.get(myId) : null;
         if (!me) return;
         const near = (px, py) => (Math.hypot(me.x - px, me.y - py) < 150);
+        if (activePanel) { activePanel = null; renderUI(); return; }
         if (tables.roulette && near(tables.roulette.x, tables.roulette.y)) { activePanel = 'roulette'; renderUI(); return; }
         if (tables.blackjack && near(tables.blackjack.x, tables.blackjack.y)) { activePanel = 'blackjack'; renderUI(); return; }
-      });
+      }
 
       function renderUI() {
-        if (!activePanel) { ui.style.display = 'none'; ui.innerHTML = ''; return; }
-        ui.style.display = 'block';
+        if (!activePanel) { ui.style.display = 'none'; backdrop.style.display = 'none'; ui.innerHTML = ''; return; }
+        ui.style.display = 'block'; backdrop.style.display = 'block';
         if (activePanel === 'roulette') renderRouletteUI();
         else if (activePanel === 'blackjack') renderBlackjackUI();
       }
@@ -264,24 +279,42 @@
           <h3 style="margin:0 0 .5rem">Roulette</h3>
           <div style="font-size:.9rem; opacity:.8; margin-bottom:.5rem">Spin in ${secs}s${t.lastResult !== null ? ` • Last: ${t.lastResult}` : ''}</div>
           <div id="chips" style="font-size:.9rem; margin-bottom:.5rem"></div>
-          <form id="r-form" style="display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem">
-            <label>Number <input id="r-num" type="number" min="0" max="36" style="width:5rem"></label>
-            <label>Amount <input id="r-amt" type="number" min="1" max="1000" style="width:6rem"></label>
-            <button type="submit">Bet</button>
-          </form>
-          <button id="r-close">Close</button>
+          <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:.75rem">
+            <canvas id="wheel" width="200" height="200" style="background:#0a0a0a; border-radius:12px"></canvas>
+            <div>
+              <form id="r-form" style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:.5rem">
+                <label><input type="radio" name="rtype" value="number" checked> Number</label>
+                <label><input type="radio" name="rtype" value="color"> Color</label>
+                <label>Num <input id="r-num" type="number" min="0" max="36" style="width:5rem"></label>
+                <label>Color
+                  <select id="r-color">
+                    <option value="red">Red</option>
+                    <option value="black">Black</option>
+                  </select>
+                </label>
+                <label>Amount <input id="r-amt" type="number" min="1" max="1000" style="width:6rem"></label>
+                <button type="submit">Bet</button>
+              </form>
+              <button id="r-close">Close</button>
+            </div>
+          </div>
         `;
         ui.querySelector('#r-close').onclick = () => { activePanel = null; renderUI(); };
         ui.querySelector('#r-form').onsubmit = (ev) => {
           ev.preventDefault();
+          const kind = ui.querySelector('input[name="rtype"]:checked').value;
           const number = Number(ui.querySelector('#r-num').value);
+          const color = ui.querySelector('#r-color').value;
           const amount = Number(ui.querySelector('#r-amt').value);
           const me = myId ? players.get(myId) : null;
           if (!me || (me.chips ?? 0) < amount) { alert('Insufficient chips'); return; }
-          ioClient.emit('roulette:bet', { number, amount });
+          if (kind === 'number') ioClient.emit('roulette:bet', { type: 'number', number, amount });
+          else ioClient.emit('roulette:bet', { type: 'color', color, amount });
         };
         const me = myId ? players.get(myId) : null;
         if (me) ui.querySelector('#chips').textContent = `Your chips: $${me.chips ?? 0}`;
+        const wheel = document.getElementById('wheel');
+        if (wheel) drawRouletteWheel(wheel.getContext('2d'));
       }
 
       function renderBlackjackUI() {
@@ -292,7 +325,10 @@
         const canBet = !t.roundActive;
         ui.innerHTML = `
           <h3 style="margin:0 0 .5rem">Blackjack</h3>
-          <div style="font-size:.9rem; opacity:.8; margin-bottom:.5rem">${dealerVal}<br>${myVal}</div>
+          <div id="bj-area" style="display:grid; grid-template-columns:1fr; gap:.5rem; margin-bottom:.75rem">
+            <div><strong>Dealer</strong>: <span id="bj-dealer">(waiting)</span></div>
+            <div><strong>You</strong>: <span id="bj-me">(no bet)</span></div>
+          </div>
           <div id="chips" style="font-size:.9rem; margin-bottom:.5rem"></div>
           <div id="bj-actions" style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem"></div>
           <button id="bj-close">Close</button>
@@ -318,6 +354,7 @@
         }
         const self = myId ? players.get(myId) : null;
         if (self) ui.querySelector('#chips').textContent = `Your chips: $${self.chips ?? 0}`;
+        animateBlackjackHands();
 
         function value(cards) {
           if (!cards || !cards.length) return 0;
@@ -332,6 +369,75 @@
           while (total > 21 && aces > 0) { total -= 10; aces--; }
           return total;
         }
+      }
+
+      function startRouletteSpin(result) {
+        const per = (Math.PI * 2) / 37;
+        const target = (Math.PI * 1.5) - (result * per);
+        rouletteAnim.start = performance.now();
+        rouletteAnim.duration = 2000;
+        rouletteAnim.target = target + Math.PI * 6;
+        rouletteAnim.spinning = true;
+        requestAnimationFrame(stepRouletteSpin);
+      }
+
+      function stepRouletteSpin(now) {
+        if (!rouletteAnim.spinning) return;
+        const t = Math.min(1, (now - rouletteAnim.start) / rouletteAnim.duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+        const current = rouletteAnim.angle + (rouletteAnim.target - rouletteAnim.angle) * ease;
+        rouletteAnim.angle = current;
+        const wheel = document.getElementById('wheel');
+        if (wheel) drawRouletteWheel(wheel.getContext('2d'));
+        if (t < 1) requestAnimationFrame(stepRouletteSpin); else rouletteAnim.spinning = false;
+      }
+
+      function drawRouletteWheel(wctx) {
+        const size = Math.min(wctx.canvas.width, wctx.canvas.height);
+        const r = size / 2 - 8;
+        wctx.clearRect(0,0,wctx.canvas.width,wctx.canvas.height);
+        wctx.save();
+        wctx.translate(wctx.canvas.width/2, wctx.canvas.height/2);
+        wctx.rotate(rouletteAnim.angle);
+        const per = (Math.PI*2)/37;
+        const redSet = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+        for (let n = 0; n < 37; n++) {
+          const a0 = n * per, a1 = (n+1) * per;
+          wctx.beginPath();
+          wctx.moveTo(0,0);
+          wctx.arc(0,0,r,a0,a1);
+          let color = '#006400';
+          if (n !== 0) color = redSet.has(n) ? '#c1121f' : '#111';
+          wctx.fillStyle = color;
+          wctx.fill();
+        }
+        wctx.restore();
+        wctx.fillStyle = 'gold';
+        wctx.beginPath();
+        wctx.moveTo(size/2, 8);
+        wctx.lineTo(size/2 - 12, 28);
+        wctx.lineTo(size/2 + 12, 28);
+        wctx.closePath();
+        wctx.fill();
+      }
+
+      function animateBlackjackHands() {
+        bjAnimTimers.forEach(clearTimeout); bjAnimTimers = [];
+        const t = tables.blackjack;
+        const me = myId ? (t.players || []).find(p => p.id === myId) : null;
+        const dealerEl = ui.querySelector('#bj-dealer');
+        const meEl = ui.querySelector('#bj-me');
+        if (!dealerEl || !meEl) return;
+        dealerEl.textContent = '';
+        meEl.textContent = '';
+        const d = (t.dealer || []).slice();
+        const m = me ? (me.hand || []).slice() : [];
+        d.forEach((card, i) => {
+          bjAnimTimers.push(setTimeout(() => { dealerEl.textContent = `${dealerEl.textContent ? dealerEl.textContent + ' ' : ''}${card}`; }, i * 250));
+        });
+        m.forEach((card, i) => {
+          bjAnimTimers.push(setTimeout(() => { meEl.textContent = `${meEl.textContent ? meEl.textContent + ' ' : ''}${card}`; }, i * 250));
+        });
       }
 
       // HUD for chips
