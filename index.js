@@ -77,6 +77,17 @@ function handValue(cards) {
   return total;
 }
 
+function isSoft17(cards) {
+  let total = 0, aces = 0;
+  for (const c of cards) {
+    const r = c.replace(/[♠♥♦♣]/g, '');
+    total += cardValue(r);
+    if (r === 'A') aces++;
+  }
+  while (total > 21 && aces > 0) { total -= 10; aces--; }
+  return total === 17 && aces > 0;
+}
+
 const blackjack = {
   id: 'blackjack-1',
   x: 1200, y: 500,
@@ -175,6 +186,54 @@ io.on('connection', (socket) => {
       if (!['red','black'].includes(color)) return;
       me.chips -= amount;
       roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'color', color, amount });
+    } else if (type === 'odd_even') {
+      const side = String(payload?.side || '').toLowerCase(); // 'odd'|'even'
+      if (!['odd','even'].includes(side)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'odd_even', side, amount });
+    } else if (type === 'high_low') {
+      const side = String(payload?.side || '').toLowerCase(); // 'high'|'low'
+      if (!['high','low'].includes(side)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'high_low', side, amount });
+    } else if (type === 'dozen') {
+      const dozen = Number(payload?.dozen); // 1,2,3
+      if (![1,2,3].includes(dozen)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'dozen', dozen, amount });
+    } else if (type === 'column') {
+      const column = Number(payload?.column); // 1,2,3
+      if (![1,2,3].includes(column)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'column', column, amount });
+    } else if (type === 'split') {
+      const a = Number(payload?.a); const b = Number(payload?.b);
+      const valid = (n) => Number.isInteger(n) && n >= 0 && n <= 36;
+      if (!valid(a) || !valid(b) || a === b) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'split', a, b, amount });
+    } else if (type === 'street') {
+      const base = Number(payload?.base); // lowest of three numbers in the street (e.g., 1,4,7...)
+      if (![1,4,7,10,13,16,19,22,25,28,31,34].includes(base)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'street', base, amount });
+    } else if (type === 'corner') {
+      const a = Number(payload?.a); const b = Number(payload?.b); const c = Number(payload?.c); const d = Number(payload?.d);
+      const nums = [a,b,c,d];
+      const ok = nums.every(n => Number.isInteger(n) && n >= 1 && n <= 36);
+      if (!ok) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'corner', a, b, c, d, amount });
+    } else if (type === 'six_line') {
+      const base = Number(payload?.base); // lowest of left column of six (e.g., 1 with 1-6, or 4 with 4-9)
+      const validBases = [1,4,7,10,13,16,19,22,25,28,31];
+      if (!validBases.includes(base)) return;
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'six_line', base, amount });
+    } else if (type === 'basket') {
+      // European basket: 0,1,2,3
+      me.chips -= amount;
+      roulette.bets.push({ id: `${socket.id}-${Date.now()}`, playerId: socket.id, type: 'basket', amount });
     } else {
       return;
     }
@@ -209,11 +268,51 @@ io.on('connection', (socket) => {
     const near = Math.hypot(me.x - blackjack.x, me.y - blackjack.y) < 150;
     if (!near) return;
     blackjack.roundActive = true;
-    blackjack.dealer = [dealCard(blackjack.shoe), dealCard(blackjack.shoe)];
-    for (const [, p] of blackjack.players) {
-      if (p.bet > 0) p.hand = [dealCard(blackjack.shoe), dealCard(blackjack.shoe)];
+    blackjack.dealer = [];
+    for (const [, p] of blackjack.players) { if (p.bet > 0) p.hand = []; }
+    // staged dealing to everyone
+    let delay = 0;
+    const enqueue = (fn, d) => setTimeout(fn, d);
+    // first card to each player
+    for (const [pid, p] of blackjack.players) {
+      if (p.bet > 0) {
+        delay += 200;
+        enqueue(() => {
+          const card = dealCard(blackjack.shoe);
+          p.hand.push(card);
+          io.emit('blackjackCard', { to: 'player', id: pid, card });
+          io.emit('blackjackUpdate', serializeBlackjack());
+        }, delay);
+      }
     }
-    io.emit('blackjackUpdate', serializeBlackjack());
+    // first card to dealer
+    delay += 200;
+    enqueue(() => {
+      const card = dealCard(blackjack.shoe);
+      blackjack.dealer.push(card);
+      io.emit('blackjackCard', { to: 'dealer', card });
+      io.emit('blackjackUpdate', serializeBlackjack());
+    }, delay);
+    // second card to each player
+    for (const [pid, p] of blackjack.players) {
+      if (p.bet > 0) {
+        delay += 200;
+        enqueue(() => {
+          const card = dealCard(blackjack.shoe);
+          p.hand.push(card);
+          io.emit('blackjackCard', { to: 'player', id: pid, card });
+          io.emit('blackjackUpdate', serializeBlackjack());
+        }, delay);
+      }
+    }
+    // second card to dealer
+    delay += 200;
+    enqueue(() => {
+      const card = dealCard(blackjack.shoe);
+      blackjack.dealer.push(card);
+      io.emit('blackjackCard', { to: 'dealer', card });
+      io.emit('blackjackUpdate', serializeBlackjack());
+    }, delay);
   });
 
   socket.on('blackjack:hit', () => {
@@ -224,7 +323,9 @@ io.on('connection', (socket) => {
     if (!me) return;
     const near = Math.hypot(me.x - blackjack.x, me.y - blackjack.y) < 150;
     if (!near) return;
-    p.hand.push(dealCard(blackjack.shoe));
+    const card = dealCard(blackjack.shoe);
+    p.hand.push(card);
+    io.emit('blackjackCard', { to: 'player', id: socket.id, card });
     if (handValue(p.hand) > 21) { p.busted = true; p.finished = true; }
     io.emit('blackjackUpdate', serializeBlackjack());
   });
@@ -289,6 +390,90 @@ setInterval(() => {
           io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
         }
       }
+      if (b.type === 'odd_even') {
+        if (result !== 0) {
+          const isOdd = result % 2 === 1;
+          if ((b.side === 'odd' && isOdd) || (b.side === 'even' && !isOdd)) {
+            const payout = b.amount * 2;
+            pl.chips += payout;
+            wins.push({ playerId: b.playerId, amount: payout });
+            io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+          }
+        }
+      }
+      if (b.type === 'high_low') {
+        if (result !== 0) {
+          const isHigh = result >= 19;
+          if ((b.side === 'high' && isHigh) || (b.side === 'low' && !isHigh)) {
+            const payout = b.amount * 2;
+            pl.chips += payout;
+            wins.push({ playerId: b.playerId, amount: payout });
+            io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+          }
+        }
+      }
+      if (b.type === 'dozen') {
+        const dz = result === 0 ? 0 : Math.ceil(result / 12); // 1..3
+        if (dz && dz === b.dozen) {
+          const payout = b.amount * 3;
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
+      if (b.type === 'column') {
+        // columns: numbers where (n % 3) mapping -> 1..3
+        const col = result === 0 ? 0 : ((result - 1) % 3) + 1;
+        if (col && col === b.column) {
+          const payout = b.amount * 3;
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
+      if (b.type === 'split') {
+        if (result === b.a || result === b.b) {
+          const payout = b.amount * 18; // 17:1 including stake
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
+      if (b.type === 'street') {
+        const set = new Set([b.base, b.base+1, b.base+2]);
+        if (set.has(result)) {
+          const payout = b.amount * 12; // 11:1 incl stake
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
+      if (b.type === 'corner') {
+        const set = new Set([b.a,b.b,b.c,b.d]);
+        if (set.has(result)) {
+          const payout = b.amount * 9; // 8:1 incl stake
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
+      if (b.type === 'six_line') {
+        const set = new Set([b.base,b.base+1,b.base+2,b.base+3,b.base+4,b.base+5]);
+        if (set.has(result)) {
+          const payout = b.amount * 6; // 5:1 incl stake
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
+      if (b.type === 'basket') {
+        if ([0,1,2,3].includes(result)) {
+          const payout = b.amount * 9; // 8:1 incl stake
+          pl.chips += payout;
+          wins.push({ playerId: b.playerId, amount: payout });
+          io.emit('chipsUpdate', { id: b.playerId, chips: pl.chips });
+        }
+      }
     }
     io.emit('rouletteSpin', { result, wins });
     roulette.bets = [];
@@ -306,9 +491,18 @@ setInterval(() => {
     if (p.bet > 0 && !p.finished) { allFinished = false; break; }
   }
   if (!allFinished) return;
-  // Dealer draws to 17+
-  while (handValue(blackjack.dealer) < 17) {
-    blackjack.dealer.push(dealCard(blackjack.shoe));
+  // Dealer draws to 17+ (stand on soft 17)
+  while (true) {
+    const val = handValue(blackjack.dealer);
+    if (val < 17) {
+      const c = dealCard(blackjack.shoe);
+      blackjack.dealer.push(c);
+      io.emit('blackjackCard', { to: 'dealer', card: c });
+      io.emit('blackjackUpdate', serializeBlackjack());
+      continue;
+    }
+    // Stand on any 17 (including soft-17)
+    break;
   }
   const dealerVal = handValue(blackjack.dealer);
   const results = [];
