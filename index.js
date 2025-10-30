@@ -7,8 +7,14 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, {
+  path: '/socket.io',
+  cors: { origin: '*', methods: ['GET','POST'], credentials: false },
+  pingInterval: 25000,
+  pingTimeout: 20000
+});
 
 // Health endpoint
 app.get('/health', (req, res) => {

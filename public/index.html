@@ -26,7 +26,16 @@
     <script>
       const canvas = document.getElementById('game');
       const ctx = canvas.getContext('2d');
-      const ioClient = io();
+      const ioClient = io({
+        path: '/socket.io',
+        transports: ['websocket'],
+        upgrade: false,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000
+      });
 
       const world = { width: 2000, height: 1200 };
       const camera = { x: 0, y: 0, w: canvas.width, h: canvas.height };
@@ -45,9 +54,9 @@
       resize();
 
       // Socket handlers
-      ioClient.on('connect', () => {
-        myId = ioClient.id;
-      });
+      ioClient.on('connect', () => { myId = ioClient.id; });
+      ioClient.on('reconnect', () => { /* state will resync via server 'state' or movement */ });
+      ioClient.on('connect_error', (err) => { console.warn('connect_error', err?.message || err); });
       ioClient.on('state', (obj) => {
         players.clear();
         for (const [id, p] of Object.entries(obj)) players.set(id, p);

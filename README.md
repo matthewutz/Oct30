@@ -26,6 +26,13 @@ Open `http://localhost:3000`.
 
 Open in multiple tabs to see other users moving in real time. Control with WASD.
 
+## Deploying on Render (free tier)
+
+- Make sure the Start Command is `npm start` and the port is set by Render (`PORT` env).
+- Free instances can spin down; brief disconnects are normal. The client auto-reconnects.
+- WebSockets are supported on Render; this app prefers WebSocket transport only.
+- If you have a custom domain, set CORS origin if you lock it down (server uses `*` by default).
+
 ## Configuration
 
 - Port: set `PORT` env var (defaults to 3000)
