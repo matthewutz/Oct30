@@ -126,6 +126,7 @@
 
       let last = performance.now();
       let rouletteAnim = { spinning: false, angle: 0, start: 0, duration: 2000, target: 0 };
+      let rouletteCountdownTimer = null;
       let bjAnimTimers = [];
       function loop(now) {
         const dt = Math.min(0.1, (now - last) / 1000);
@@ -280,7 +281,7 @@
       }
 
       function renderUI() {
-        if (!activePanel) { ui.style.display = 'none'; backdrop.style.display = 'none'; ui.innerHTML = ''; return; }
+        if (!activePanel) { ui.style.display = 'none'; backdrop.style.display = 'none'; ui.innerHTML = ''; if (rouletteCountdownTimer) { clearInterval(rouletteCountdownTimer); rouletteCountdownTimer = null; } return; }
         ui.style.display = 'block'; backdrop.style.display = 'block';
         if (activePanel === 'roulette') renderRouletteUI();
         else if (activePanel === 'blackjack') renderBlackjackUI();
@@ -291,11 +292,12 @@
         const secs = Math.max(0, Math.ceil((t.nextSpinAt - Date.now()) / 1000));
         ui.innerHTML = `
           <h3 style="margin:0 0 .5rem">Roulette</h3>
-          <div style="font-size:.9rem; opacity:.8; margin-bottom:.5rem">Spin in ${secs}s${t.lastResult !== null ? ` • Last: ${t.lastResult}` : ''}</div>
+          <div id="r-countdown" style="font-size:.9rem; opacity:.8; margin-bottom:.5rem">Spin in ${secs}s${t.lastResult !== null ? ` • Last: ${t.lastResult}` : ''}</div>
           <div id="chips" style="font-size:.9rem; margin-bottom:.5rem"></div>
           <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:.75rem">
+            <canvas id="wheel" width="220" height="220" style="background:#0a0a0a; border-radius:12px"></canvas>
             <canvas id="board" width="700" height="420" style="background:#0a0a0a; border-radius:12px"></canvas>
-            <div>
+            <div style="display:flex; flex-direction:column; gap:.5rem">
               <div style="margin-bottom:.5rem; display:flex; gap:.5rem; flex-wrap:wrap">
                 <button class="denom" data-v="1">$1</button>
                 <button class="denom" data-v="5">$5</button>
@@ -320,6 +322,18 @@
         });
         drawBoard(bctx);
         drawChips(bctx);
+        // Wheel draw
+        const wheel = document.getElementById('wheel');
+        if (wheel) drawRouletteWheel(wheel.getContext('2d'));
+        // Live countdown updater
+        const countdownEl = ui.querySelector('#r-countdown');
+        if (rouletteCountdownTimer) { clearInterval(rouletteCountdownTimer); }
+        rouletteCountdownTimer = setInterval(() => {
+          const tt = tables.roulette;
+          if (!tt) return;
+          const secsLeft = Math.max(0, Math.ceil((tt.nextSpinAt - Date.now()) / 1000));
+          countdownEl.textContent = `Spin in ${secsLeft}s${tt.lastResult !== null ? ` • Last: ${tt.lastResult}` : ''}`;
+        }, 250);
         board.onclick = (ev) => {
           const rect = board.getBoundingClientRect();
           const dpr = 1; // board is already sized in CSS pixels
@@ -530,7 +544,7 @@
         // initial draw of wheel small preview is optional; board is main
         drawChips(bctx);
         // refresh chips when server updates
-        const rerender = () => { drawBoard(bctx); drawChips(bctx); };
+        const rerender = () => { drawBoard(bctx); drawChips(bctx); const wctx = wheel?.getContext('2d'); if (wctx) drawRouletteWheel(wctx); };
         ioClient.off?.('rouletteUpdate', rerender);
         ioClient.on('rouletteUpdate', rerender);
       }
