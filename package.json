@@ -1,0 +1,21 @@
+{
+  "name": "oct30-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simple Node.js HTTP server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "node",
+    "server",
+    "http"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
+
