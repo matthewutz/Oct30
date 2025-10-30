@@ -1,23 +1,26 @@
-const http = require('http');
+const path = require('path');
+const express = require('express');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
-const server = http.createServer((req, res) => {
-  const { method, url } = req;
+const app = express();
 
-  if (url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok' }));
-    return;
-  }
-
-  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Hello from Node.js server\n');
+// Health endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
-server.listen(PORT, HOST, () => {
+// Serve static assets from ./public
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+
+// Fallback to index.html for root
+app.get('/', (req, res) => {
+  res.sendFile(path.join(publicDir, 'index.html'));
+});
+
+app.listen(PORT, HOST, () => {
   console.log(`Server listening on http://${HOST}:${PORT}`);
 });
-
 

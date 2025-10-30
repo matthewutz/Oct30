@@ -1,6 +1,18 @@
-# Simple Node.js Server
+# Simple Node.js Server (Express)
 
-A minimal Node.js HTTP server with no external dependencies.
+A minimal Express server that serves a static `public/index.html` and a health endpoint.
+
+## Install
+
+```bash
+npm install
+```
+
+If dependencies are missing, run:
+
+```bash
+npm install express
+```
 
 ## Run
 
@@ -8,7 +20,7 @@ A minimal Node.js HTTP server with no external dependencies.
 npm start
 ```
 
-Then open `http://localhost:3000`.
+Open `http://localhost:3000`.
 
 - Health check: `http://localhost:3000/health` returns `{ "status": "ok" }`.
 
@@ -19,6 +31,7 @@ Then open `http://localhost:3000`.
 
 ## Files
 
-- `index.js`: server implementation
+- `index.js`: Express server
+- `public/index.html`: landing page
 - `package.json`: metadata and start script
 - `.gitignore`: common Node ignores
