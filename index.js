@@ -34,7 +34,7 @@ app.get('/', (req, res) => {
 const animals = ['🦊','🐼','🐶','🐱','🦁','🐯','🐸','🐵','🐰','🐨','🐻','🐷','🐮','🐹','🦄','🐙'];
 const players = new Map(); // socketId -> { x, y, animal, chips }
 const world = { width: 2000, height: 1200 };
-const speed = 240; // pixels per second
+const speed = 300; // pixels per second
 
 // --- Casino state ---
 // Minimal single roulette and single blackjack table
@@ -94,7 +94,9 @@ const blackjack = {
   shoe: createShoe(),
   dealer: [],
   players: new Map(), // playerId -> { bet, hand, stood, busted, finished }
-  roundActive: false
+  roundActive: false,
+  nextDealAt: Date.now() + 20000,
+  dealIntervalMs: 20000
 };
 
 function dealCard(shoe) {
@@ -267,52 +269,7 @@ io.on('connection', (socket) => {
     if (!me) return;
     const near = Math.hypot(me.x - blackjack.x, me.y - blackjack.y) < 150;
     if (!near) return;
-    blackjack.roundActive = true;
-    blackjack.dealer = [];
-    for (const [, p] of blackjack.players) { if (p.bet > 0) p.hand = []; }
-    // staged dealing to everyone
-    let delay = 0;
-    const enqueue = (fn, d) => setTimeout(fn, d);
-    // first card to each player
-    for (const [pid, p] of blackjack.players) {
-      if (p.bet > 0) {
-        delay += 200;
-        enqueue(() => {
-          const card = dealCard(blackjack.shoe);
-          p.hand.push(card);
-          io.emit('blackjackCard', { to: 'player', id: pid, card });
-          io.emit('blackjackUpdate', serializeBlackjack());
-        }, delay);
-      }
-    }
-    // first card to dealer
-    delay += 200;
-    enqueue(() => {
-      const card = dealCard(blackjack.shoe);
-      blackjack.dealer.push(card);
-      io.emit('blackjackCard', { to: 'dealer', card });
-      io.emit('blackjackUpdate', serializeBlackjack());
-    }, delay);
-    // second card to each player
-    for (const [pid, p] of blackjack.players) {
-      if (p.bet > 0) {
-        delay += 200;
-        enqueue(() => {
-          const card = dealCard(blackjack.shoe);
-          p.hand.push(card);
-          io.emit('blackjackCard', { to: 'player', id: pid, card });
-          io.emit('blackjackUpdate', serializeBlackjack());
-        }, delay);
-      }
-    }
-    // second card to dealer
-    delay += 200;
-    enqueue(() => {
-      const card = dealCard(blackjack.shoe);
-      blackjack.dealer.push(card);
-      io.emit('blackjackCard', { to: 'dealer', card });
-      io.emit('blackjackUpdate', serializeBlackjack());
-    }, delay);
+    startBlackjackRound();
   });
 
   socket.on('blackjack:hit', () => {
@@ -360,8 +317,61 @@ function serializeBlackjack() {
     x: blackjack.x, y: blackjack.y,
     dealer: blackjack.dealer,
     players: Array.from(blackjack.players, ([id, data]) => ({ id, bet: data.bet, hand: data.hand, stood: data.stood, busted: data.busted, finished: data.finished })),
-    roundActive: blackjack.roundActive
+    roundActive: blackjack.roundActive,
+    nextDealAt: blackjack.nextDealAt
   };
+}
+
+function startBlackjackRound() {
+  if (blackjack.roundActive) return;
+  blackjack.roundActive = true;
+  blackjack.dealer = [];
+  for (const [, p] of blackjack.players) {
+    if (p.bet > 0) { p.hand = []; p.stood = false; p.busted = false; p.finished = false; }
+  }
+  io.emit('blackjackUpdate', serializeBlackjack());
+  let delay = 0;
+  const enqueue = (fn, d) => setTimeout(fn, d);
+  // first card to each player
+  for (const [pid, p] of blackjack.players) {
+    if (p.bet > 0) {
+      delay += 200;
+      enqueue(() => {
+        const card = dealCard(blackjack.shoe);
+        p.hand.push(card);
+        io.emit('blackjackCard', { to: 'player', id: pid, card });
+        io.emit('blackjackUpdate', serializeBlackjack());
+      }, delay);
+    }
+  }
+  // first card to dealer
+  delay += 200;
+  enqueue(() => {
+    const card = dealCard(blackjack.shoe);
+    blackjack.dealer.push(card);
+    io.emit('blackjackCard', { to: 'dealer', card });
+    io.emit('blackjackUpdate', serializeBlackjack());
+  }, delay);
+  // second card to each player
+  for (const [pid, p] of blackjack.players) {
+    if (p.bet > 0) {
+      delay += 200;
+      enqueue(() => {
+        const card = dealCard(blackjack.shoe);
+        p.hand.push(card);
+        io.emit('blackjackCard', { to: 'player', id: pid, card });
+        io.emit('blackjackUpdate', serializeBlackjack());
+      }, delay);
+    }
+  }
+  // second card to dealer
+  delay += 200;
+  enqueue(() => {
+    const card = dealCard(blackjack.shoe);
+    blackjack.dealer.push(card);
+    io.emit('blackjackCard', { to: 'dealer', card });
+    io.emit('blackjackUpdate', serializeBlackjack());
+  }, delay);
 }
 
 // Roulette spin loop
@@ -531,6 +541,28 @@ setInterval(() => {
     p.hand = []; p.stood = false; p.busted = false; p.finished = false; p.bet = 0;
   }
   io.emit('blackjackUpdate', serializeBlackjack());
+  blackjack.nextDealAt = Date.now() + blackjack.dealIntervalMs;
+}, 500);
+
+// Blackjack auto-deal scheduler
+setInterval(() => {
+  if (blackjack.roundActive) return;
+  const now = Date.now();
+  if (now < blackjack.nextDealAt) return;
+  // Only auto-deal if at least one player has an active bet
+  let hasBet = false;
+  for (const [, p] of blackjack.players) {
+    if (p.bet > 0) { hasBet = true; break; }
+  }
+  if (hasBet) {
+    startBlackjackRound();
+    blackjack.nextDealAt = now + blackjack.dealIntervalMs;
+    io.emit('blackjackUpdate', serializeBlackjack());
+  } else {
+    // push the timer forward briefly while waiting for bets
+    blackjack.nextDealAt = now + 3000;
+    io.emit('blackjackUpdate', serializeBlackjack());
+  }
 }, 500);
 
 server.listen(PORT, HOST, () => {
