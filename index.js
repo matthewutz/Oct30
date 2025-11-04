@@ -34,8 +34,9 @@ app.get('/', (req, res) => {
 const players = new Map(); // socketId -> { name, color }
 let currentController = null; // socketId of person in control
 let currentUrl = 'https://duckduckgo.com'; // default starting URL (allows iframe embedding)
-const controlTakeoverCooldown = 2000; // milliseconds before someone can take control again
-let lastControlChange = 0;
+
+// Cache for URL validation
+const urlCache = new Map();
 
 // Generate random color for player
 function getRandomColor() {
@@ -43,14 +44,38 @@ function getRandomColor() {
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
+// Validate and normalize URL
+function validateUrl(url) {
+  if (urlCache.has(url)) {
+    return urlCache.get(url);
+  }
+  
+  let validatedUrl = String(url || '').trim();
+  if (!validatedUrl.startsWith('http://') && !validatedUrl.startsWith('https://')) {
+    validatedUrl = 'https://' + validatedUrl;
+  }
+  
+  try {
+    new URL(validatedUrl); // Validate URL format
+    urlCache.set(url, validatedUrl);
+    return validatedUrl;
+  } catch (e) {
+    return null;
+  }
+}
+
 io.on('connection', (socket) => {
   const playerName = `Player ${socket.id.slice(0, 6)}`;
   const playerColor = getRandomColor();
   players.set(socket.id, { name: playerName, color: playerColor });
 
-  // Send current state to new client
+  // Send current state to new client (optimized serialization)
+  const playersArray = [];
+  for (const [id, data] of players) {
+    playersArray.push({ id, name: data.name, color: data.color });
+  }
   socket.emit('state', {
-    players: Array.from(players, ([id, data]) => ({ id, ...data })),
+    players: playersArray,
     currentController: currentController,
     currentUrl: currentUrl
   });
@@ -60,51 +85,47 @@ io.on('connection', (socket) => {
 
   // Attempt to take control
   socket.on('takeControl', () => {
-    const now = Date.now();
-    // Allow taking control if no one has it, or if cooldown has passed
-    if (!currentController || (now - lastControlChange) >= controlTakeoverCooldown) {
-      const oldController = currentController;
-      currentController = socket.id;
-      lastControlChange = now;
-      
-      io.emit('controlChanged', { 
-        newController: socket.id,
-        oldController: oldController,
-        controllerName: playerName
-      });
-      
-      // If old controller disconnected, don't notify them
-      if (oldController && players.has(oldController)) {
-        io.to(oldController).emit('controlLost');
-      }
-    } else {
-      socket.emit('controlDenied', { 
-        reason: 'Cooldown active',
-        cooldownRemaining: controlTakeoverCooldown - (now - lastControlChange)
-      });
+    const oldController = currentController;
+    currentController = socket.id;
+    
+    io.emit('controlChanged', { 
+      newController: socket.id,
+      oldController: oldController,
+      controllerName: playerName
+    });
+    
+    // If old controller disconnected, don't notify them
+    if (oldController && players.has(oldController)) {
+      io.to(oldController).emit('controlLost');
     }
   });
 
   // Navigation events (only from current controller)
   socket.on('navigate', ({ url }) => {
     if (currentController !== socket.id) {
-      socket.emit('error', { message: 'You are not in control' });
+      return; // Silently ignore if not controller
+    }
+    
+    const validatedUrl = validateUrl(url);
+    if (!validatedUrl) {
+      socket.emit('error', { message: 'Invalid URL' });
       return;
     }
     
-    // Validate and sanitize URL
-    let validatedUrl = String(url || '').trim();
-    if (!validatedUrl.startsWith('http://') && !validatedUrl.startsWith('https://')) {
-      validatedUrl = 'https://' + validatedUrl;
-    }
-    
-    try {
-      new URL(validatedUrl); // Validate URL format
+    if (currentUrl !== validatedUrl) {
       currentUrl = validatedUrl;
       io.emit('urlChanged', { url: currentUrl, controller: socket.id, controllerName: playerName });
-    } catch (e) {
-      socket.emit('error', { message: 'Invalid URL' });
     }
+  });
+
+  // Iframe navigation events (when controller navigates inside iframe)
+  socket.on('iframeNavigate', ({ url }) => {
+    if (currentController !== socket.id || currentUrl === url) {
+      return; // Ignore if not controller or same URL
+    }
+    
+    currentUrl = url;
+    io.emit('urlChanged', { url: currentUrl, controller: socket.id, controllerName: playerName });
   });
 
   socket.on('disconnect', () => {

@@ -290,8 +290,10 @@
       let currentController = null;
       let currentUrl = 'https://duckduckgo.com';
       let isInControl = false;
-      let cooldownEndTime = 0;
+      let lastIframeUrl = currentUrl;
+      let playerListUpdatePending = false;
 
+      // Cache DOM references
       const urlInput = document.getElementById('url-input');
       const goBtn = document.getElementById('go-btn');
       const takeControlBtn = document.getElementById('take-control-btn');
@@ -312,28 +314,42 @@
       }
 
       function updatePlayersList() {
-        playersList.innerHTML = '';
-        players.forEach((player, id) => {
-          const badge = document.createElement('div');
-          badge.className = 'player-badge';
-          badge.style.background = player.color + '20';
-          badge.style.border = `2px solid ${player.color}`;
-          badge.style.color = player.color;
-          badge.innerHTML = `<span class="player-dot"></span>${player.name}${id === myId ? ' (You)' : ''}`;
-          if (id === currentController) {
-            badge.style.background = '#4ade8020';
-            badge.style.borderColor = '#4ade80';
-            badge.style.color = '#4ade80';
-            badge.innerHTML += ' 👑';
-          }
-          playersList.appendChild(badge);
+        if (playerListUpdatePending) return;
+        playerListUpdatePending = true;
+        
+        requestAnimationFrame(() => {
+          playersList.innerHTML = '';
+          const fragment = document.createDocumentFragment();
+          
+          players.forEach((player, id) => {
+            const badge = document.createElement('div');
+            badge.className = 'player-badge';
+            const isController = id === currentController;
+            const isMe = id === myId;
+            
+            if (isController) {
+              badge.style.background = '#4ade8020';
+              badge.style.borderColor = '#4ade80';
+              badge.style.color = '#4ade80';
+            } else {
+              badge.style.background = player.color + '20';
+              badge.style.border = `2px solid ${player.color}`;
+              badge.style.color = player.color;
+            }
+            
+            badge.innerHTML = `<span class="player-dot"></span>${player.name}${isMe ? ' (You)' : ''}${isController ? ' 👑' : ''}`;
+            fragment.appendChild(badge);
+          });
+          
+          playersList.appendChild(fragment);
+          playerCountEl.textContent = players.size;
+          playerListUpdatePending = false;
         });
-        playerCountEl.textContent = players.size;
       }
 
       function updateControlState() {
         isInControl = currentController === myId;
-        takeControlBtn.disabled = isInControl || Date.now() < cooldownEndTime;
+        takeControlBtn.disabled = isInControl;
         takeControlBtn.textContent = isInControl ? 'You Control' : 'Take Control';
         takeControlBtn.classList.toggle('active', isInControl);
         
@@ -342,17 +358,81 @@
         
         if (isInControl) {
           urlInput.focus();
+          // Start monitoring iframe navigation when we gain control
+          startIframeMonitoring();
+        } else {
+          // Stop monitoring iframe navigation when we lose control
+          stopIframeMonitoring();
         }
       }
 
-      function updateCooldown() {
-        const remaining = Math.max(0, cooldownEndTime - Date.now());
-        if (remaining > 0 && !isInControl) {
-          takeControlBtn.innerHTML = `Take Control <span class="cooldown-indicator">(${Math.ceil(remaining/1000)}s)</span>`;
-        } else if (!isInControl) {
-          takeControlBtn.textContent = 'Take Control';
+      // Monitor iframe navigation for controller (optimized)
+      let iframeMonitorInterval = null;
+      let lastCheckTime = 0;
+      const IFRAME_CHECK_INTERVAL = 2000; // Check every 2 seconds instead of 500ms
+      
+      function checkIframeNavigation() {
+        if (!isInControl) return;
+        
+        const now = Date.now();
+        if (now - lastCheckTime < IFRAME_CHECK_INTERVAL) return;
+        lastCheckTime = now;
+        
+        try {
+          // Try to get iframe location (may fail due to CORS)
+          const iframeDoc = browserIframe.contentDocument || browserIframe.contentWindow?.document;
+          
+          if (iframeDoc?.location) {
+            const newUrl = iframeDoc.location.href;
+            if (newUrl !== lastIframeUrl && newUrl !== currentUrl) {
+              lastIframeUrl = newUrl;
+              currentUrl = newUrl;
+              urlInput.value = newUrl;
+              ioClient.emit('iframeNavigate', { url: newUrl });
+              return;
+            }
+          }
+        } catch (e) {
+          // CORS error - check iframe src as fallback
+        }
+        
+        // Fallback: check iframe src attribute
+        const srcUrl = browserIframe.src;
+        if (srcUrl !== lastIframeUrl && srcUrl !== currentUrl) {
+          lastIframeUrl = srcUrl;
+          currentUrl = srcUrl;
+          urlInput.value = srcUrl;
+          ioClient.emit('iframeNavigate', { url: srcUrl });
         }
       }
+      
+      function startIframeMonitoring() {
+        if (iframeMonitorInterval) return;
+        lastCheckTime = Date.now();
+        
+        // Check less frequently for better performance
+        iframeMonitorInterval = setInterval(checkIframeNavigation, IFRAME_CHECK_INTERVAL);
+      }
+      
+      function stopIframeMonitoring() {
+        if (iframeMonitorInterval) {
+          clearInterval(iframeMonitorInterval);
+          iframeMonitorInterval = null;
+        }
+      }
+      
+      // Monitor iframe load events (more efficient than polling)
+      browserIframe.addEventListener('load', () => {
+        if (isInControl) {
+          const newUrl = browserIframe.src;
+          if (newUrl !== lastIframeUrl && newUrl !== currentUrl) {
+            lastIframeUrl = newUrl;
+            currentUrl = newUrl;
+            urlInput.value = newUrl;
+            ioClient.emit('iframeNavigate', { url: newUrl });
+          }
+        }
+      });
 
       // Socket events
       ioClient.on('connect', () => {
@@ -405,16 +485,26 @@
         updateControlState();
       });
 
-      ioClient.on('controlDenied', ({ cooldownRemaining }) => {
-        cooldownEndTime = Date.now() + cooldownRemaining;
-        showToast(`Control cooldown: ${Math.ceil(cooldownRemaining/1000)}s remaining`);
-        updateControlState();
-      });
-
       ioClient.on('urlChanged', ({ url, controllerName }) => {
-        currentUrl = url;
-        browserIframe.src = url;
+        // Skip if URL hasn't changed
+        if (currentUrl === url) return;
+        
+        // Update URL bar for everyone
         urlInput.value = url;
+        
+        // Only update iframe if we're not the controller (controller already updated it)
+        // This prevents loops and unnecessary reloads
+        if (!isInControl) {
+          currentUrl = url;
+          browserIframe.src = url;
+          lastIframeUrl = url;
+        } else {
+          // Even if we're controller, update our tracking
+          currentUrl = url;
+          lastIframeUrl = url;
+        }
+        
+        // Only show toast if someone else navigated
         if (controllerName && controllerName !== players.get(myId)?.name) {
           showToast(`${controllerName} navigated to ${url}`);
         }
@@ -426,18 +516,44 @@
 
       // UI events
       takeControlBtn.addEventListener('click', () => {
-        if (!isInControl && Date.now() >= cooldownEndTime) {
+        if (!isInControl) {
           ioClient.emit('takeControl');
         }
       });
 
-      goBtn.addEventListener('click', () => {
-        if (isInControl) {
-          const url = urlInput.value.trim();
-          if (url) {
-            ioClient.emit('navigate', { url });
-          }
+      // URL validation helper
+      function validateUrl(url) {
+        let validatedUrl = String(url || '').trim();
+        if (!validatedUrl) return null;
+        if (!validatedUrl.startsWith('http://') && !validatedUrl.startsWith('https://')) {
+          validatedUrl = 'https://' + validatedUrl;
         }
+        try {
+          new URL(validatedUrl);
+          return validatedUrl;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      goBtn.addEventListener('click', () => {
+        if (!isInControl) return;
+        
+        const url = urlInput.value.trim();
+        if (!url) return;
+        
+        const validatedUrl = validateUrl(url);
+        if (!validatedUrl) {
+          showToast('Invalid URL', 2000);
+          return;
+        }
+        
+        // Update local iframe immediately
+        currentUrl = validatedUrl;
+        browserIframe.src = validatedUrl;
+        lastIframeUrl = validatedUrl;
+        // Broadcast to others
+        ioClient.emit('navigate', { url: validatedUrl });
       });
 
       urlInput.addEventListener('keypress', (e) => {
@@ -445,9 +561,11 @@
           goBtn.click();
         }
       });
-
-      // Update cooldown display every second
-      setInterval(updateCooldown, 100);
+      
+      // Cleanup on page unload
+      window.addEventListener('beforeunload', () => {
+        stopIframeMonitoring();
+      });
     </script>
   </body>
   </html>
