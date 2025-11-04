@@ -33,7 +33,7 @@ app.get('/', (req, res) => {
 // --- Browser Battle state ---
 const players = new Map(); // socketId -> { name, color }
 let currentController = null; // socketId of person in control
-let currentUrl = 'https://www.google.com'; // default starting URL
+let currentUrl = 'https://duckduckgo.com'; // default starting URL (allows iframe embedding)
 const controlTakeoverCooldown = 2000; // milliseconds before someone can take control again
 let lastControlChange = 0;
 
