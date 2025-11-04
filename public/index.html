@@ -3,22 +3,277 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Oct30 Express Server</title>
+    <title>Browser Battle - Fight for Control</title>
     <style>
-      :root { color-scheme: light dark; }
-      body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-      #game { display: block; width: 100vw; height: 100vh; background: #1a1a1a; }
-      .hint { position: fixed; left: 50%; bottom: 2rem; transform: translateX(-50%); background: rgba(0,0,0,.6); color: white; padding: .5rem .75rem; border-radius: 999px; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.2); display:none; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif;
+        background: #0a0a0a;
+        color: #fff;
+        overflow: hidden;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 100;
+      }
+
+      .header h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+      }
+
+      .control-panel {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+      }
+
+      .control-btn {
+        padding: 0.6rem 1.2rem;
+        background: rgba(255,255,255,0.2);
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.9rem;
+      }
+
+      .control-btn:hover:not(:disabled) {
+        background: rgba(255,255,255,0.3);
+        border-color: rgba(255,255,255,0.5);
+        transform: translateY(-2px);
+      }
+
+      .control-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .control-btn.active {
+        background: #4ade80;
+        border-color: #4ade80;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.8; }
+      }
+
+      .players-list {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .player-badge {
+        padding: 0.4rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .player-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .main-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .url-bar {
+        background: #1a1a1a;
+        padding: 0.75rem 1rem;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        border-bottom: 2px solid #333;
+      }
+
+      .url-input {
+        flex: 1;
+        padding: 0.6rem 1rem;
+        background: #2a2a2a;
+        border: 2px solid #444;
+        border-radius: 8px;
+        color: white;
+        font-size: 0.9rem;
+        font-family: monospace;
+      }
+
+      .url-input:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+
+      .url-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .go-btn {
+        padding: 0.6rem 1.5rem;
+        background: #667eea;
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .go-btn:hover:not(:disabled) {
+        background: #5568d3;
+      }
+
+      .go-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .browser-frame {
+        flex: 1;
+        position: relative;
+        background: #000;
+        border: none;
+      }
+
+      .browser-frame iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: white;
+      }
+
+      .status-overlay {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        background: rgba(0,0,0,0.8);
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(255,255,255,0.1);
+        min-width: 250px;
+      }
+
+      .status-item {
+        margin-bottom: 0.75rem;
+        font-size: 0.9rem;
+      }
+
+      .status-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .status-label {
+        opacity: 0.7;
+        font-size: 0.85rem;
+        margin-bottom: 0.25rem;
+      }
+
+      .status-value {
+        font-weight: 600;
+        color: #4ade80;
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.9);
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        border: 2px solid rgba(255,255,255,0.2);
+        backdrop-filter: blur(10px);
+        z-index: 1000;
+        animation: slideUp 0.3s ease-out;
+        max-width: 90%;
+        text-align: center;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+
+      .cooldown-indicator {
+        font-size: 0.8rem;
+        opacity: 0.7;
+        margin-top: 0.25rem;
+      }
     </style>
   </head>
   <body>
-    <canvas id="game"></canvas>
-    <div id="press-hint" class="hint">Press F to interact</div>
+    <div class="header">
+      <h1>🌐 Browser Battle</h1>
+      <div class="control-panel">
+        <div class="players-list" id="players-list"></div>
+        <button class="control-btn" id="take-control-btn">Take Control</button>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <div class="url-bar">
+        <input 
+          type="text" 
+          class="url-input" 
+          id="url-input" 
+          placeholder="Enter URL or search term..."
+          disabled
+        />
+        <button class="go-btn" id="go-btn" disabled>Go</button>
+      </div>
+      <div class="browser-frame">
+        <iframe id="browser-iframe" src="https://www.google.com" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
+        <div class="status-overlay">
+          <div class="status-item">
+            <div class="status-label">Controller</div>
+            <div class="status-value" id="controller-name">No one</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">Players Online</div>
+            <div class="status-value" id="player-count">1</div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-      const canvas = document.getElementById('game');
-      const ctx = canvas.getContext('2d');
       const ioClient = io({
         path: '/socket.io',
         transports: ['websocket'],
@@ -30,671 +285,169 @@
         timeout: 20000
       });
 
-      const world = { width: 2000, height: 1200 };
-      const camera = { x: 0, y: 0, w: canvas.width, h: canvas.height };
-      const keys = new Set();
-      const players = new Map(); // id -> { x, y, animal, chips }
-      const tables = { roulette: null, blackjack: null };
-      let activePanel = null; // 'roulette' | 'blackjack' | null
-      const hint = document.getElementById('press-hint');
-
-      // UI overlay elements
-      const backdrop = document.createElement('div');
-      backdrop.style.position = 'fixed';
-      backdrop.style.inset = '0';
-      backdrop.style.background = 'rgba(0,0,0,0.4)';
-      backdrop.style.backdropFilter = 'blur(2px)';
-      backdrop.style.display = 'none';
-      document.body.appendChild(backdrop);
-      const ui = document.createElement('div');
-      ui.style.position = 'fixed';
-      ui.style.left = '50%';
-      ui.style.top = '50%';
-      ui.style.transform = 'translate(-50%, -50%)';
-      ui.style.padding = '1rem';
-      ui.style.borderRadius = '16px';
-      ui.style.background = 'color-mix(in oklab, canvas 92%, black)';
-      ui.style.boxShadow = '0 20px 60px rgba(0,0,0,.35)';
-      ui.style.minWidth = '320px';
-      ui.style.maxWidth = '90vw';
-      ui.style.maxHeight = '80vh';
-      ui.style.overflow = 'auto';
-      ui.style.display = 'none';
-      document.body.appendChild(ui);
       let myId = null;
+      let players = new Map();
+      let currentController = null;
+      let currentUrl = 'https://www.google.com';
+      let isInControl = false;
+      let cooldownEndTime = 0;
 
-      function resize() {
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
-        canvas.width = Math.floor(window.innerWidth * dpr);
-        canvas.height = Math.floor(window.innerHeight * dpr);
-        camera.w = canvas.width; camera.h = canvas.height;
+      const urlInput = document.getElementById('url-input');
+      const goBtn = document.getElementById('go-btn');
+      const takeControlBtn = document.getElementById('take-control-btn');
+      const browserIframe = document.getElementById('browser-iframe');
+      const playersList = document.getElementById('players-list');
+      const controllerNameEl = document.getElementById('controller-name');
+      const playerCountEl = document.getElementById('player-count');
+
+      function showToast(message, duration = 3000) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.style.animation = 'slideUp 0.3s ease-out reverse';
+          setTimeout(() => toast.remove(), 300);
+        }, duration);
       }
-      window.addEventListener('resize', resize);
-      resize();
 
-      // Socket handlers
-      ioClient.on('connect', () => { myId = ioClient.id; });
-      ioClient.on('reconnect', () => { /* state will resync via server 'state' or movement */ });
-      ioClient.on('connect_error', (err) => { console.warn('connect_error', err?.message || err); });
-      ioClient.on('state', (obj) => {
+      function updatePlayersList() {
+        playersList.innerHTML = '';
+        players.forEach((player, id) => {
+          const badge = document.createElement('div');
+          badge.className = 'player-badge';
+          badge.style.background = player.color + '20';
+          badge.style.border = `2px solid ${player.color}`;
+          badge.style.color = player.color;
+          badge.innerHTML = `<span class="player-dot"></span>${player.name}${id === myId ? ' (You)' : ''}`;
+          if (id === currentController) {
+            badge.style.background = '#4ade8020';
+            badge.style.borderColor = '#4ade80';
+            badge.style.color = '#4ade80';
+            badge.innerHTML += ' 👑';
+          }
+          playersList.appendChild(badge);
+        });
+        playerCountEl.textContent = players.size;
+      }
+
+      function updateControlState() {
+        isInControl = currentController === myId;
+        takeControlBtn.disabled = isInControl || Date.now() < cooldownEndTime;
+        takeControlBtn.textContent = isInControl ? 'You Control' : 'Take Control';
+        takeControlBtn.classList.toggle('active', isInControl);
+        
+        urlInput.disabled = !isInControl;
+        goBtn.disabled = !isInControl;
+        
+        if (isInControl) {
+          urlInput.focus();
+        }
+      }
+
+      function updateCooldown() {
+        const remaining = Math.max(0, cooldownEndTime - Date.now());
+        if (remaining > 0 && !isInControl) {
+          takeControlBtn.innerHTML = `Take Control <span class="cooldown-indicator">(${Math.ceil(remaining/1000)}s)</span>`;
+        } else if (!isInControl) {
+          takeControlBtn.textContent = 'Take Control';
+        }
+      }
+
+      // Socket events
+      ioClient.on('connect', () => {
+        myId = ioClient.id;
+        showToast('Connected to Browser Battle!');
+      });
+
+      ioClient.on('state', (state) => {
         players.clear();
-        for (const [id, p] of Object.entries(obj)) players.set(id, p);
-        if (!myId) myId = ioClient.id;
+        state.players.forEach(p => players.set(p.id, p));
+        currentController = state.currentController;
+        currentUrl = state.currentUrl;
+        browserIframe.src = currentUrl;
+        urlInput.value = currentUrl;
+        updatePlayersList();
+        updateControlState();
       });
-      ioClient.on('chipsUpdate', ({ id, chips }) => {
-        const p = players.get(id);
-        if (p) { p.chips = chips; }
-        if (id === myId) drawHUD();
+
+      ioClient.on('playerJoined', (player) => {
+        players.set(player.id, player);
+        updatePlayersList();
+        showToast(`${player.name} joined the battle!`);
       });
-      ioClient.on('tablesState', (state) => {
-        tables.roulette = state.roulette;
-        tables.blackjack = { ...state.blackjack };
-        renderUI();
+
+      ioClient.on('playerLeft', ({ id }) => {
+        const player = players.get(id);
+        if (player) {
+          showToast(`${player.name} left`);
+        }
+        players.delete(id);
+        updatePlayersList();
       });
-      ioClient.on('rouletteUpdate', (r) => { tables.roulette = r; renderUI(); });
-      ioClient.on('rouletteSpin', ({ result, wins }) => {
-        tables.roulette.lastResult = result;
-        startRouletteSpin(result);
-        renderUI();
+
+      ioClient.on('controlChanged', ({ newController, controllerName }) => {
+        currentController = newController;
+        const controllerPlayer = newController ? players.get(newController) : null;
+        controllerNameEl.textContent = controllerPlayer ? controllerPlayer.name : 'No one';
+        updatePlayersList();
+        updateControlState();
+        
+        if (newController === myId) {
+          showToast('🎉 You took control!', 2000);
+        } else if (controllerPlayer) {
+          showToast(`${controllerPlayer.name} took control!`);
+        }
       });
-      ioClient.on('blackjackUpdate', (bj) => { tables.blackjack = bj; renderUI(); });
-      ioClient.on('blackjackCard', (e) => {
-        if (e.to === 'dealer') {
-          (tables.blackjack.dealer = tables.blackjack.dealer || []).push(e.card);
-        } else if (e.to === 'player') {
-          const arr = tables.blackjack.players || [];
-          for (let i = 0; i < arr.length; i++) {
-            if (arr[i].id === e.id) {
-              (arr[i].hand = arr[i].hand || []).push(e.card);
-              break;
-            }
-          }
-        }
-        if (activePanel === 'blackjack') animateBlackjackHands();
+
+      ioClient.on('controlLost', () => {
+        showToast('❌ You lost control!', 2000);
+        updateControlState();
       });
-      ioClient.on('blackjackResolve', ({ dealer, results }) => {
-        // Brief flash effect could be added; for now just re-render
-        renderUI();
+
+      ioClient.on('controlDenied', ({ cooldownRemaining }) => {
+        cooldownEndTime = Date.now() + cooldownRemaining;
+        showToast(`Control cooldown: ${Math.ceil(cooldownRemaining/1000)}s remaining`);
+        updateControlState();
       });
-      ioClient.on('playerJoined', (p) => { players.set(p.id, { x: p.x, y: p.y, animal: p.animal }); });
-      ioClient.on('playerMoved', ({ id, x, y }) => { const p = players.get(id); if (p) { p.x = x; p.y = y; } });
-      ioClient.on('playerLeft', ({ id }) => { players.delete(id); });
 
-      // Input
-      window.addEventListener('keydown', (e) => { const k = e.key.toLowerCase(); if ('wasd'.includes(k)) { keys.add(k); e.preventDefault(); } if (k === 'f') { toggleInteract(); e.preventDefault(); }});
-      window.addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); if ('wasd'.includes(k)) { keys.delete(k); e.preventDefault(); }});
-
-      let last = performance.now();
-      let rouletteAnim = { spinning: false, angle: 0, start: 0, duration: 2000, target: 0 };
-      let rouletteCountdownTimer = null;
-      let bjAnimTimers = [];
-      function loop(now) {
-        const dt = Math.min(0.1, (now - last) / 1000);
-        last = now;
-
-        let vx = 0, vy = 0;
-        if (keys.has('w')) vy -= 1;
-        if (keys.has('s')) vy += 1;
-        if (keys.has('a')) vx -= 1;
-        if (keys.has('d')) vx += 1;
-        // normalize diagonal
-        if (vx !== 0 && vy !== 0) { const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
-
-        if ((vx !== 0 || vy !== 0) && myId) {
-          ioClient.emit('move', { vx, vy, dt });
+      ioClient.on('urlChanged', ({ url, controllerName }) => {
+        currentUrl = url;
+        browserIframe.src = url;
+        urlInput.value = url;
+        if (controllerName && controllerName !== players.get(myId)?.name) {
+          showToast(`${controllerName} navigated to ${url}`);
         }
+      });
 
-        // center camera on self
-        const me = myId ? players.get(myId) : null;
-        if (me) {
-          camera.x = Math.round(me.x - camera.w / 2);
-          camera.y = Math.round(me.y - camera.h / 2);
-          camera.x = Math.max(0, Math.min(world.width - camera.w, camera.x));
-          camera.y = Math.max(0, Math.min(world.height - camera.h, camera.y));
+      ioClient.on('error', ({ message }) => {
+        showToast(`Error: ${message}`, 3000);
+      });
+
+      // UI events
+      takeControlBtn.addEventListener('click', () => {
+        if (!isInControl && Date.now() >= cooldownEndTime) {
+          ioClient.emit('takeControl');
         }
+      });
 
-        draw();
-        requestAnimationFrame(loop);
-      }
-
-      function drawGrid() {
-        const step = 100;
-        ctx.strokeStyle = 'rgba(127,127,127,0.25)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let x = -camera.x % step; x < camera.w; x += step) {
-          ctx.moveTo(x, 0); ctx.lineTo(x, camera.h);
-        }
-        for (let y = -camera.y % step; y < camera.h; y += step) {
-          ctx.moveTo(0, y); ctx.lineTo(camera.w, y);
-        }
-        ctx.stroke();
-      }
-
-      function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawCasinoFloor();
-
-        // Draw tables
-        if (tables.roulette) drawRouletteTable();
-        if (tables.blackjack) drawBlackjackTable();
-
-        drawInteractHint();
-
-        for (const [id, p] of players) {
-          const screenX = Math.round(p.x - camera.x);
-          const screenY = Math.round(p.y - camera.y);
-          const size = 36;
-          ctx.font = `${size}px system-ui, emoji`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(p.animal || '🐾', screenX, screenY);
-
-          if (id === myId) {
-            ctx.strokeStyle = 'deepskyblue';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(screenX, screenY, 24, 0, Math.PI * 2);
-            ctx.stroke();
+      goBtn.addEventListener('click', () => {
+        if (isInControl) {
+          const url = urlInput.value.trim();
+          if (url) {
+            ioClient.emit('navigate', { url });
           }
         }
-      }
+      });
 
-      requestAnimationFrame(loop);
-
-      function drawCasinoFloor() {
-        // Deep red carpet with subtle gold grid
-        ctx.fillStyle = '#7a0c0c';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        const step = 100;
-        ctx.strokeStyle = 'rgba(255,215,0,0.07)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let x = -camera.x % step; x < camera.w; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, camera.h); }
-        for (let y = -camera.y % step; y < camera.h; y += step) { ctx.moveTo(0, y); ctx.lineTo(camera.w, y); }
-        ctx.stroke();
-
-        // rooms (tinted felt)
-        drawRoom(450, 350, 420, 320, '#175c2b'); // Roulette
-        drawRoom(1000, 400, 520, 340, '#0a2a66'); // Blackjack
-      }
-
-      function drawRoom(cx, cy, w, h, tint) {
-        const x = cx - camera.x - w/2;
-        const y = cy - camera.y - h/2;
-        ctx.fillStyle = tint || 'rgba(255,255,255,0.05)';
-        ctx.strokeStyle = 'rgba(255,215,0,0.6)';
-        ctx.lineWidth = 6;
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeRect(x, y, w, h);
-      }
-
-      function drawRouletteTable() {
-        const t = tables.roulette;
-        const x = t.x - camera.x, y = t.y - camera.y;
-        ctx.fillStyle = '#136f2d';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 2;
-        ctx.fillRect(x - 100, y - 50, 200, 100);
-        ctx.strokeRect(x - 100, y - 50, 200, 100);
-        ctx.fillStyle = 'white';
-        ctx.font = '20px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('Roulette', x, y - 20);
-        const secs = Math.max(0, Math.ceil((t.nextSpinAt - Date.now()) / 1000));
-        ctx.fillText(`Spin in ${secs}s`, x, y + 10);
-        if (t.lastResult !== null) ctx.fillText(`Last: ${t.lastResult}`, x, y + 35);
-      }
-
-      function drawBlackjackTable() {
-        const t = tables.blackjack;
-        const x = t.x - camera.x, y = t.y - camera.y;
-        ctx.fillStyle = '#0a2a66';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 2;
-        ctx.fillRect(x - 120, y - 60, 240, 120);
-        ctx.strokeRect(x - 120, y - 60, 240, 120);
-        ctx.fillStyle = 'white';
-        ctx.font = '20px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('Blackjack', x, y - 10);
-        ctx.fillText(`${t.roundActive ? 'Round active' : 'Place bets'}`, x, y + 20);
-      }
-
-      function drawInteractHint() {
-        const me = myId ? players.get(myId) : null;
-        let show = false;
-        if (me && tables.roulette) {
-          if (Math.hypot(me.x - tables.roulette.x, me.y - tables.roulette.y) < 150) show = true;
+      urlInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && isInControl) {
+          goBtn.click();
         }
-        if (me && tables.blackjack && Math.hypot(me.x - tables.blackjack.x, me.y - tables.blackjack.y) < 150) show = true;
-        hint.style.display = show && !activePanel ? 'block' : 'none';
-      }
+      });
 
-      function toggleInteract() {
-        const me = myId ? players.get(myId) : null;
-        if (!me) return;
-        const near = (px, py) => (Math.hypot(me.x - px, me.y - py) < 150);
-        if (activePanel) { activePanel = null; renderUI(); return; }
-        if (tables.roulette && near(tables.roulette.x, tables.roulette.y)) { activePanel = 'roulette'; renderUI(); return; }
-        if (tables.blackjack && near(tables.blackjack.x, tables.blackjack.y)) { activePanel = 'blackjack'; renderUI(); return; }
-      }
-
-      function renderUI() {
-        if (!activePanel) { ui.style.display = 'none'; backdrop.style.display = 'none'; ui.innerHTML = ''; if (rouletteCountdownTimer) { clearInterval(rouletteCountdownTimer); rouletteCountdownTimer = null; } return; }
-        ui.style.display = 'block'; backdrop.style.display = 'block';
-        if (activePanel === 'roulette') renderRouletteUI();
-        else if (activePanel === 'blackjack') renderBlackjackUI();
-      }
-
-      function renderRouletteUI() {
-        const t = tables.roulette;
-        const secs = Math.max(0, Math.ceil((t.nextSpinAt - Date.now()) / 1000));
-        ui.innerHTML = `
-          <h3 style="margin:0 0 .5rem">Roulette</h3>
-          <div id="r-countdown" style="font-size:.9rem; opacity:.8; margin-bottom:.5rem">Spin in ${secs}s${t.lastResult !== null ? ` • Last: ${t.lastResult}` : ''}</div>
-          <div id="chips" style="font-size:.9rem; margin-bottom:.5rem"></div>
-          <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:.75rem">
-            <canvas id="wheel" width="220" height="220" style="background:#0a0a0a; border-radius:12px"></canvas>
-            <canvas id="board" width="700" height="420" style="background:#0a0a0a; border-radius:12px"></canvas>
-            <div style="display:flex; flex-direction:column; gap:.5rem">
-              <div style="margin-bottom:.5rem; display:flex; gap:.5rem; flex-wrap:wrap">
-                <button class="denom" data-v="1">$1</button>
-                <button class="denom" data-v="5">$5</button>
-                <button class="denom" data-v="25">$25</button>
-                <button class="denom" data-v="100">$100</button>
-                <button class="denom" data-v="500">$500</button>
-                <button class="denom" data-v="1000">$1000</button>
-              </div>
-              <button id="r-close">Close</button>
-            </div>
-          </div>
-        `;
-        ui.querySelector('#r-close').onclick = () => { activePanel = null; renderUI(); };
-        const me = myId ? players.get(myId) : null;
-        if (me) ui.querySelector('#chips').textContent = `Your chips: $${me.chips ?? 0}`;
-        // Board draw and interaction
-        const board = document.getElementById('board');
-        const bctx = board.getContext('2d');
-        let denom = 100;
-        ui.querySelectorAll('.denom').forEach(btn => {
-          btn.onclick = () => { denom = Number(btn.dataset.v); };
-        });
-        drawBoard(bctx);
-        drawChips(bctx);
-        // Wheel draw
-        const wheel = document.getElementById('wheel');
-        if (wheel) drawRouletteWheel(wheel.getContext('2d'));
-        // Live countdown updater
-        const countdownEl = ui.querySelector('#r-countdown');
-        if (rouletteCountdownTimer) { clearInterval(rouletteCountdownTimer); }
-        rouletteCountdownTimer = setInterval(() => {
-          const tt = tables.roulette;
-          if (!tt) return;
-          const secsLeft = Math.max(0, Math.ceil((tt.nextSpinAt - Date.now()) / 1000));
-          countdownEl.textContent = `Spin in ${secsLeft}s${tt.lastResult !== null ? ` • Last: ${tt.lastResult}` : ''}`;
-        }, 250);
-        board.onclick = (ev) => {
-          const rect = board.getBoundingClientRect();
-          const dpr = 1; // board is already sized in CSS pixels
-          const x = ev.clientX - rect.left;
-          const y = ev.clientY - rect.top;
-          const bet = hitTestBoard(x, y);
-          if (!bet) return;
-          const mep = myId ? players.get(myId) : null;
-          if (!mep || (mep.chips ?? 0) < denom) { alert('Insufficient chips'); return; }
-          ioClient.emit('roulette:bet', { ...bet, amount: denom });
-        };
-
-        function drawBoard(ctx) {
-          ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
-          const ox = 120, oy = 20, cw = 40, ch = 40; // grid origin
-          // 0 cell
-          ctx.fillStyle = '#136f2d'; ctx.strokeStyle = 'gold'; ctx.lineWidth = 2;
-          ctx.fillRect(ox - 80, oy, 80, ch*3);
-          ctx.strokeRect(ox - 80, oy, 80, ch*3);
-          ctx.fillStyle = 'white'; ctx.font = '16px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.fillText('0', ox - 40, oy + ch*1.5);
-          // numbers 1..36 grid 3x12
-          for (let c = 1; c <= 12; c++) {
-            for (let r = 0; r < 3; r++) {
-              const nx = ox + (c-1)*cw, ny = oy + r*ch;
-              const n = 3*c - r;
-              const redSet = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
-              ctx.fillStyle = (n===0?'#136f2d': redSet.has(n)?'#c1121f':'#111');
-              ctx.fillRect(nx, ny, cw, ch);
-              ctx.strokeStyle = 'gold'; ctx.strokeRect(nx, ny, cw, ch);
-              ctx.fillStyle = 'white'; ctx.fillText(String(n), nx+cw/2, ny+ch/2);
-            }
-          }
-          // columns boxes on right
-          const rx = ox + 12*cw + 10;
-          for (let r = 0; r < 3; r++) {
-            const ny = oy + r*ch;
-            ctx.fillStyle = '#333'; ctx.fillRect(rx, ny, 80, ch);
-            ctx.strokeStyle = 'gold'; ctx.strokeRect(rx, ny, 80, ch);
-            ctx.fillStyle = 'white'; ctx.fillText(`Column ${r+1}`, rx+40, ny+ch/2);
-          }
-          // dozens under grid
-          const dy = oy + ch*3 + 10;
-          for (let i = 0; i < 3; i++) {
-            const nx = ox + i* (4*cw);
-            ctx.fillStyle = '#333'; ctx.fillRect(nx, dy, 4*cw, ch);
-            ctx.strokeStyle = 'gold'; ctx.strokeRect(nx, dy, 4*cw, ch);
-            ctx.fillStyle = 'white'; ctx.fillText(`${i+1}st 12`.replace('2st','2nd').replace('3st','3rd'), nx+2*cw, dy+ch/2);
-          }
-          // even money row
-          const ey = dy + ch + 10;
-          const labels = ['1-18','Even','Red','Black','Odd','19-36'];
-          for (let i = 0; i < 6; i++) {
-            const nx = ox + i*(2*cw);
-            ctx.fillStyle = i===2?'#c1121f': i===3?'#111':'#333';
-            ctx.fillRect(nx, ey, 2*cw, ch);
-            ctx.strokeStyle = 'gold'; ctx.strokeRect(nx, ey, 2*cw, ch);
-            ctx.fillStyle = 'white'; ctx.fillText(labels[i], nx+(2*cw)/2, ey+ch/2);
-          }
-        }
-
-        function drawChips(ctx) {
-          const ox = 120, oy = 20, cw = 40, ch = 40;
-          const redSet = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
-          const colorFor = (id) => {
-            const h = Array.from(id).reduce((a,c)=>a+c.charCodeAt(0),0);
-            const palette = ['#00d1ff','#ff6b6b','#ffd166','#06d6a0','#c77dff','#f94144'];
-            return palette[h % palette.length];
-          };
-          // overlay chips
-          for (const b of (tables.roulette?.bets||[])) {
-            ctx.save(); ctx.globalAlpha = 0.95;
-            ctx.fillStyle = colorFor(b.playerId); ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
-            let cx, cy;
-            if (b.type === 'number') {
-              if (b.number === 0) { cx = ox - 40; cy = oy + ch*1.5; }
-              else {
-                const c = Math.ceil(b.number/3); const r = (3*c - b.number); // 0..2
-                cx = ox + (c-1)*cw + cw/2; cy = oy + r*ch + ch/2;
-              }
-            } else if (b.type === 'color') {
-              // place over the even money boxes red/black (2 and 3)
-              const ey = oy + ch*3 + 10 + ch + 10;
-              const nx = b.color==='red' ? (120 + 2*(2*cw)) : (120 + 3*(2*cw));
-              cx = nx + (2*cw)/2; cy = ey + ch/2;
-            } else if (b.type === 'odd_even') {
-              const ey = oy + ch*3 + 10 + ch + 10;
-              const i = b.side==='even' ? 1 : 4;
-              const nx = 120 + i*(2*cw);
-              cx = nx + (2*cw)/2; cy = ey + ch/2;
-            } else if (b.type === 'high_low') {
-              const ey = oy + ch*3 + 10 + ch + 10;
-              const i = b.side==='low' ? 0 : 5;
-              const nx = 120 + i*(2*cw);
-              cx = nx + (2*cw)/2; cy = ey + ch/2;
-            } else if (b.type === 'dozen') {
-              const dy = oy + ch*3 + 10;
-              const nx = 120 + (b.dozen-1)*(4*cw);
-              cx = nx + (2*cw); cy = dy + ch/2;
-            } else if (b.type === 'column') {
-              const rx = 120 + 12*cw + 10; const r = b.column-1; const ny = oy + r*ch;
-              cx = rx + 40; cy = ny + ch/2;
-            } else if (b.type === 'split') {
-              const pos = splitPosition(b.a, b.b);
-              if (pos) { cx = pos.x; cy = pos.y; }
-            } else if (b.type === 'corner') {
-              const pos = cornerPosition([b.a,b.b,b.c,b.d]);
-              if (pos) { cx = pos.x; cy = pos.y; }
-            } else if (b.type === 'street') {
-              const c = Math.ceil((b.base+2)/3);
-              const nx = ox + (c-1)*cw + cw/2;
-              const ny = oy + ch*1.5; // center of column of 3
-              cx = nx; cy = ny;
-            } else if (b.type === 'six_line') {
-              const leftCol = Math.ceil((b.base+2)/3);
-              const nx = ox + (leftCol-1)*cw + cw; // boundary between columns centered
-              const ny = oy + ch*1.5;
-              cx = nx; cy = ny;
-            } else if (b.type === 'basket') {
-              cx = ox - 40 + 20; cy = oy + ch*0.5; // near 0/1/2/3 junction
-            }
-            if (cx !== undefined) {
-              ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-              ctx.fillStyle = 'black'; ctx.font = '10px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
-              ctx.fillText(String(b.amount), cx, cy);
-            }
-            ctx.restore();
-          }
-          function cellCR(n) { if (n===0) return null; const c = Math.ceil(n/3); const r = (3*c - n); return {c, r}; }
-          function splitPosition(a,b) {
-            if (a===0 || b===0) return null;
-            const A = cellCR(a), B = cellCR(b); if (!A||!B) return null;
-            const ax = ox + (A.c-1)*cw + cw/2, ay = oy + A.r*ch + ch/2;
-            const bx = ox + (B.c-1)*cw + cw/2, by = oy + B.r*ch + ch/2;
-            return { x: (ax+bx)/2, y: (ay+by)/2 };
-          }
-          function cornerPosition(nums) {
-            const pts = nums.map(n => cellCR(n)).filter(Boolean);
-            if (pts.length !== 4) return null;
-            const xs = pts.map(p => ox + (p.c-1)*cw + cw/2);
-            const ys = pts.map(p => oy + p.r*ch + ch/2);
-            return { x: (Math.min(...xs)+Math.max(...xs))/2, y: (Math.min(...ys)+Math.max(...ys))/2 };
-          }
-        }
-
-        function hitTestBoard(x, y) {
-          const ox = 120, oy = 20, cw = 40, ch = 40;
-          // 0 cell
-          if (x >= ox-80 && x <= ox && y >= oy && y <= oy+ch*3) return { type: 'number', number: 0 };
-          // numbers grid
-          if (x >= ox && x <= ox+12*cw && y >= oy && y <= oy+3*ch) {
-            const c = Math.floor((x-ox)/cw) + 1;
-            const r = Math.floor((y-oy)/ch); // 0..2
-            const number = 3*c - r;
-            // check for split/corner/six-line/streets near lines
-            const nx = ox + (c-1)*cw; const ny = oy + r*ch;
-            const tol = 6;
-            // vertical split with left column
-            if (c > 1 && Math.abs(x - nx) <= tol) return { type: 'split', a: number-3, b: number };
-            // vertical split with right column
-            if (c < 12 && Math.abs(x - (nx+cw)) <= tol) return { type: 'split', a: number, b: number+3 };
-            // horizontal split with top cell
-            if (r > 0 && Math.abs(y - ny) <= tol) return { type: 'split', a: number+1, b: number };
-            // horizontal split with bottom cell
-            if (r < 2 && Math.abs(y - (ny+ch)) <= tol) return { type: 'split', a: number, b: number-1 };
-            // corner near intersections (not on outer borders)
-            if (c < 12 && r < 2 && Math.abs(x - (nx+cw)) <= tol && Math.abs(y - (ny+ch)) <= tol) {
-              const a = number, b = number-1, c2 = number+3, d = number+2;
-              return { type: 'corner', a, b, c: c2, d };
-            }
-            // street area center of column
-            const cx = nx + cw/2, cy = oy + ch*1.5;
-            if (Math.hypot(x-cx, y-cy) < 14) return { type: 'street', base: 3*c-2 };
-            // six-line near vertical boundary between columns (center row)
-            if (c < 12 && Math.abs(x - (nx+cw)) <= tol && Math.abs(y - (oy + ch*1.5)) < ch) return { type: 'six_line', base: 3*c-2 };
-            return { type: 'number', number };
-          }
-          // columns boxes on right
-          const rx = ox + 12*cw + 10;
-          for (let r = 0; r < 3; r++) {
-            const ny = oy + r*ch;
-            if (x >= rx && x <= rx+80 && y >= ny && y <= ny+ch) return { type: 'column', column: r+1 };
-          }
-          // dozens under grid
-          const dy = oy + ch*3 + 10;
-          for (let i = 0; i < 3; i++) {
-            const nx = ox + i*(4*cw);
-            if (x >= nx && x <= nx+4*cw && y >= dy && y <= dy+ch) return { type: 'dozen', dozen: i+1 };
-          }
-          // even money
-          const ey = dy + ch + 10;
-          for (let i = 0; i < 6; i++) {
-            const nx = ox + i*(2*cw);
-            if (x >= nx && x <= nx+2*cw && y >= ey && y <= ey+ch) {
-              if (i===0) return { type: 'high_low', side: 'low' };
-              if (i===1) return { type: 'odd_even', side: 'even' };
-              if (i===2) return { type: 'color', color: 'red' };
-              if (i===3) return { type: 'color', color: 'black' };
-              if (i===4) return { type: 'odd_even', side: 'odd' };
-              if (i===5) return { type: 'high_low', side: 'high' };
-            }
-          }
-          // basket area at junction of 0 and first two columns
-          if (x >= ox-80 && x <= ox+2*40 && y >= oy-10 && y <= oy+20) return { type: 'basket' };
-          return null;
-        }
-
-        // initial draw of wheel small preview is optional; board is main
-        drawChips(bctx);
-        // refresh chips when server updates
-        const rerender = () => { drawBoard(bctx); drawChips(bctx); const wctx = wheel?.getContext('2d'); if (wctx) drawRouletteWheel(wctx); };
-        ioClient.off?.('rouletteUpdate', rerender);
-        ioClient.on('rouletteUpdate', rerender);
-      }
-
-      function renderBlackjackUI() {
-        const t = tables.blackjack;
-        const me = myId ? (t.players || []).find(p => p.id === myId) : null;
-        const canBet = !t.roundActive;
-        ui.innerHTML = `
-          <h3 style="margin:0 0 .5rem">Blackjack</h3>
-          <div id="bj-area" style="display:grid; gap:.5rem; margin-bottom:.75rem"></div>
-          <div id="chips" style="font-size:.9rem; margin-bottom:.5rem"></div>
-          <div id="bj-actions" style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem"></div>
-          <button id="bj-close">Close</button>
-        `;
-        const area = ui.querySelector('#bj-area');
-        const dealerRow = document.createElement('div');
-        dealerRow.innerHTML = `<strong>Dealer</strong>: <span id="bj-dealer">${(t.dealer||[]).join(' ')}</span>`;
-        area.appendChild(dealerRow);
-        for (const pl of (t.players || [])) {
-          const label = pl.id === myId ? 'You' : `Player ${pl.id.slice(0,4)}`;
-          const row = document.createElement('div');
-          row.innerHTML = `<strong>${label}</strong>: <span class="bj-player" data-id="${pl.id}">${(pl.hand||[]).join(' ')}</span>`;
-          area.appendChild(row);
-        }
-        ui.querySelector('#bj-close').onclick = () => { activePanel = null; renderUI(); };
-        const actions = ui.querySelector('#bj-actions');
-        if (canBet) {
-          const betWrap = document.createElement('div');
-          betWrap.innerHTML = '<label>Bet <input id="bj-bet" type="number" min="1" max="1000" style="width:6rem"></label>';
-          const betBtn = document.createElement('button'); betBtn.textContent = 'Place Bet';
-          betBtn.onclick = () => {
-            const amount = Number(ui.querySelector('#bj-bet').value);
-            const mep = myId ? players.get(myId) : null;
-            if (!mep || (mep.chips ?? 0) < amount) { alert('Insufficient chips'); return; }
-            ioClient.emit('blackjack:bet', { amount });
-          };
-          const dealBtn = document.createElement('button'); dealBtn.textContent = 'Deal'; dealBtn.onclick = () => ioClient.emit('blackjack:deal');
-          actions.append(betWrap, betBtn, dealBtn);
-        } else if (me) {
-          const hit = document.createElement('button'); hit.textContent = 'Hit'; hit.onclick = () => ioClient.emit('blackjack:hit');
-          const stand = document.createElement('button'); stand.textContent = 'Stand'; stand.onclick = () => ioClient.emit('blackjack:stand');
-          actions.append(hit, stand);
-        }
-        const self = myId ? players.get(myId) : null;
-        if (self) ui.querySelector('#chips').textContent = `Your chips: $${self.chips ?? 0}`;
-        animateBlackjackHands();
-
-        function value(cards) {
-          if (!cards || !cards.length) return 0;
-          // simple mirror of server handValue
-          let total = 0, aces = 0;
-          for (const c of cards) {
-            const r = c.replace(/[♠♥♦♣]/g, '');
-            if (r === 'A') { total += 11; aces++; }
-            else if (['K','Q','J','10'].includes(r)) total += 10;
-            else total += Number(r);
-          }
-          while (total > 21 && aces > 0) { total -= 10; aces--; }
-          return total;
-        }
-      }
-
-      function startRouletteSpin(result) {
-        const per = (Math.PI * 2) / 37;
-        const target = (Math.PI * 1.5) - (result * per);
-        rouletteAnim.start = performance.now();
-        rouletteAnim.duration = 2000;
-        rouletteAnim.target = target + Math.PI * 6;
-        rouletteAnim.spinning = true;
-        requestAnimationFrame(stepRouletteSpin);
-      }
-
-      function stepRouletteSpin(now) {
-        if (!rouletteAnim.spinning) return;
-        const t = Math.min(1, (now - rouletteAnim.start) / rouletteAnim.duration);
-        const ease = 1 - Math.pow(1 - t, 3);
-        const current = rouletteAnim.angle + (rouletteAnim.target - rouletteAnim.angle) * ease;
-        rouletteAnim.angle = current;
-        const wheel = document.getElementById('wheel');
-        if (wheel) drawRouletteWheel(wheel.getContext('2d'));
-        if (t < 1) requestAnimationFrame(stepRouletteSpin); else rouletteAnim.spinning = false;
-      }
-
-      function drawRouletteWheel(wctx) {
-        const size = Math.min(wctx.canvas.width, wctx.canvas.height);
-        const r = size / 2 - 8;
-        wctx.clearRect(0,0,wctx.canvas.width,wctx.canvas.height);
-        wctx.save();
-        wctx.translate(wctx.canvas.width/2, wctx.canvas.height/2);
-        wctx.rotate(rouletteAnim.angle);
-        const per = (Math.PI*2)/37;
-        const redSet = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
-        for (let n = 0; n < 37; n++) {
-          const a0 = n * per, a1 = (n+1) * per;
-          wctx.beginPath();
-          wctx.moveTo(0,0);
-          wctx.arc(0,0,r,a0,a1);
-          let color = '#006400';
-          if (n !== 0) color = redSet.has(n) ? '#c1121f' : '#111';
-          wctx.fillStyle = color;
-          wctx.fill();
-        }
-        wctx.restore();
-        wctx.fillStyle = 'gold';
-        wctx.beginPath();
-        wctx.moveTo(size/2, 8);
-        wctx.lineTo(size/2 - 12, 28);
-        wctx.lineTo(size/2 + 12, 28);
-        wctx.closePath();
-        wctx.fill();
-      }
-
-      function animateBlackjackHands() {
-        bjAnimTimers.forEach(clearTimeout); bjAnimTimers = [];
-        const t = tables.blackjack;
-        const me = myId ? (t.players || []).find(p => p.id === myId) : null;
-        const dealerEl = ui.querySelector('#bj-dealer');
-        const meEl = ui.querySelector('#bj-me');
-        if (!dealerEl || !meEl) return;
-        dealerEl.textContent = '';
-        meEl.textContent = '';
-        const d = (t.dealer || []).slice();
-        const m = me ? (me.hand || []).slice() : [];
-        d.forEach((card, i) => {
-          bjAnimTimers.push(setTimeout(() => { dealerEl.textContent = `${dealerEl.textContent ? dealerEl.textContent + ' ' : ''}${card}`; }, i * 250));
-        });
-        m.forEach((card, i) => {
-          bjAnimTimers.push(setTimeout(() => { meEl.textContent = `${meEl.textContent ? meEl.textContent + ' ' : ''}${card}`; }, i * 250));
-        });
-      }
-
-      // HUD for chips
-      const hud = document.createElement('div');
-      hud.style.position = 'fixed';
-      hud.style.left = '1rem';
-      hud.style.top = '1rem';
-      hud.style.padding = '.5rem .75rem';
-      hud.style.borderRadius = '999px';
-      hud.style.background = 'color-mix(in oklab, canvas 92%, black)';
-      hud.style.boxShadow = '0 6px 24px rgba(0,0,0,.2)';
-      hud.style.fontWeight = '600';
-      document.body.appendChild(hud);
-      function drawHUD() {
-        const me = myId ? players.get(myId) : null;
-        hud.textContent = me ? `Chips: $${me.chips ?? 0}` : 'Chips: --';
-      }
-      setInterval(drawHUD, 500);
+      // Update cooldown display every second
+      setInterval(updateCooldown, 100);
     </script>
   </body>
-  </html>
-
-
+</html>
